@@ -95,6 +95,40 @@ someKey := {
 }
 ```
 
+Sharing the cache across checkouts
+----------------------------------
+
+Because the disk cache is machine-wide, it is shared by every checkout of a build on that machine, not only by repeated runs in one directory.
+This works because cache keys do not capture where the build is checked out.
+sbt records paths relative to a few well-known roots instead of as absolute paths:
+
+- `${BASE}`: the base directory of the build
+- `${OUT}`: the output directory, `target/out` by default
+- `${CSR_CACHE}`: the Coursier cache
+- `${SBT_BOOT}`, `${IVY_HOME}`, and `${JAVA_HOME}`
+
+Two checkouts of the same commit at different paths therefore compute the same cache keys.
+For example, a Git worktree created for a feature branch starts with a warm cache populated by the original checkout:
+
+```bash
+$ cd ~/work/app
+$ sbt compile
+$ git worktree add ../app-feature
+$ cd ../app-feature
+$ sbt compile
+```
+
+The second `compile` is served from the disk cache instead of compiling onsite, for every subproject whose inputs are unchanged.
+The same holds for a second clone of the repository, and with a [remote cache](#remote-caching), for other machines.
+
+This only works for tasks whose inputs are [hermetic](#hermetic-build).
+A task that captures an absolute path in its input, for example a custom task that reads `baseDirectory.value` as a `File`, computes a different key in each checkout and misses the cache.
+Use `fileConverter.value.toVirtualFile(...)` to turn such a path into a `${BASE}`-relative reference.
+Likewise, setting `localCacheDirectory` to a directory inside the build gives each checkout its own cache.
+
+To find the task that misses, enable the [execution log](../reference/cached-task.md#execution-log) in both checkouts and compare the `input.str` of the entries whose `cacheHit` is `false`.
+An absolute path in that string is the input that breaks the hermeticity.
+
 Remote caching
 --------------
 
